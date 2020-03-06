@@ -51,7 +51,7 @@ class GUI:
     def __init__(self, board, master):
         '''Initializes main windows'''
         self.board = board
-        self.board.__init__(self.squares)
+        self.board.__init__(self, self.squares)
         self.master = master
 
         #Selected piece
@@ -99,6 +99,8 @@ class GUI:
         self.canvas.bind('<Shift-Down>', self.select_previous)
         self.canvas.bind('<Shift-Left>', self.select_previous)
         self.canvas.bind('<Shift-Right>', self.select_next)
+        self.canvas.bind('<space>', self.start_solve)
+        self.canvas.bind('<r>', self.random_board)
         
         #Draws the pieces
         self.draw_canvas()
@@ -448,7 +450,14 @@ class GUI:
         '''Checks if the game has been won'''
         if (selected.row, selected.col) == self.board.target:
             print(r'\bfCongratulations, you reached the target!')
+    
+    
+    
+    def start_solve(self, event=None):
+        self.board.solve()
 
+    def random_board(self, event=None):
+        self.board.randomBoard()
 
 class Sidebar:
     '''The sidebar that allows us to choose the pieces and the walls to put on the board'''
@@ -654,4 +663,3 @@ class Sidebar:
                     self.parent.redraw_canvas()
                     print(f"The starting point with id {a['obj']} has been erased")
                     break
-
