@@ -282,7 +282,6 @@ class boardState:
     def getNumberOfTotalMoves(self):
         return len(self.moves)
     
-    # TODO check if this is all implemented
     # return whether this hero can move or not
     # less than three heroes moved
     # last move + less than MAX_MOVES
@@ -291,11 +290,11 @@ class boardState:
         if len(self.moves)==0:
             # if this is the first move of the state I can always move
             return True
-        if self.moves[-1].getHero() == hero:
+        if self.getHero(self.moves[-1]) == hero:
             # if the last move was done by hero, make sure that I haven'd done more than max_moves (10 in the actual game)
             c = 0 # counts the number of moves I have done
             for m in self.moves:
-                if m.getHero() == hero:
+                if self.getHero(m) == hero:
                     c += 1
             return c < max_moves
         else:
@@ -303,10 +302,10 @@ class boardState:
             c = 0 # counts the number of different heroes that have moved
             last = -1 # hero thad did the last move checked
             for m in self.moves:
-                if last != m.getHero(): # if I have never seen the last hero, increment c
+                if last != self.getHero(m): # if I have never seen the last hero, increment c
                     c += 1
-                    last = m.getHero()
-                if m.getHero() == hero: # if I find hero, I have already moved
+                    last = self.getHero(m)
+                if self.getHero(m) == hero: # if I find hero, I have already moved
                     return False
             if c > 2:
                 return False
@@ -328,13 +327,13 @@ class boardState:
     def getLastDirectionMoved(self):
         if len(self.moves)==0:
             return -1
-        return self.moves[-1].getDirection()
+        return (self.moves[-1] >> 25) & 3
         
     #return last hero moved
     def getLastHeroMoved(self):
         if len(self.moves)==0:
             return -1
-        return self.moves[-1].getHero()
+        return (self.moves[-1] >> 27) & 31
     
     #return all positions array
     def getPositions(self):
@@ -346,29 +345,57 @@ class boardState:
     
     #used to determine wether last move was the winning one
     def getLastPosition(self):
-        return self.meeplePositions[self.moves[-1].getHero()]
+        return self.meeplePositions[self.getLastHeroMoved()]
     
     #return moves array
     def getMoves(self):
         return self.moves
     
-    #add new move to the state
-    def addMove(self, hero, direction, start, end, power):
-        self.moves.append(move(hero, direction, start, end, power))
+    # helper function. Given a move returns the hero Id
+    def getHero(self, m):
+        return (m >> 27) & 31
+
+    # add new move to the state
+    # a move is 5 bits hero ID, 2 bits direction, 10 bits start, 10 bit end , 5 bits power ID
+    def addMove(self, hero, direction, start, end, powerId):
+        move = hero << 2
+        move = (move | direction) << 5
+        move = (move | start[0]) << 5
+        move = (move | start[1]) << 5
+        move = (move | end[0]) << 5
+        move = (move | end[1]) << 5
+        move =  move | (powerId & 31)
+        self.moves.append(move)
     
     # TODO
     # returns unique state identifier as a int or something.
     def getHash(self):
         return 0
     
-    #print moves done for debug purposes
+    # print moves done for debug purposes
     def debugPrint(self):
         for m in self.moves:
-            m.printMove()
+            self.printMove(m)
         print(self.usedPower)
-        print("end move")
+        print("end moves")
     
-class move:
+    # move = hhhhhddsssssssssseeeeeeeeeeppppp
+    def printMove(self, move):
+        hero    = (move >> 27) & 31
+        d       = (move >> 25) &  3
+        starty  = (move >> 20) & 31
+        startx  = (move >> 15) & 31
+        endy    = (move >> 10) & 31
+        endx    = (move >>  5) & 31
+        powerId =  move        & 31
+        
+        # powerId 31 == -1
+        if powerId < 31:
+            print("hero ", heroes_names[hero], " uses power of ", heroes_names[powerId], " - [", starty, ",", startx, "] -> [", endy, ",", endx, "]")
+        else:
+            print("hero ", heroes_names[hero], " - direction ", directionNames[d], " - [", starty, ",", startx, "] -> [", endy, ",", endx, "]")
+    
+""" class move:
         
     # powerId is the which hero's power is used. -1 = no power.
     def __init__(self, hero, direction, start, end, powerId):
@@ -393,4 +420,4 @@ class move:
         if self.isPower():
             print("hero ", heroes_names[self.hero], " uses power id ", self.powerId, " - direction ", self.direction, " ", self.start, " -> ", self.end)
         else:
-            print("hero ", heroes_names[self.hero], " - direction ", directionNames[self.direction], " ", self.start, " -> ", self.end)
+            print("hero ", heroes_names[self.hero], " - direction ", directionNames[self.direction], " ", self.start, " -> ", self.end) """
