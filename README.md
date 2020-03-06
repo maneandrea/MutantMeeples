@@ -20,6 +20,7 @@ For instructions on how to use it read the initial message at startup.
 - Graphical interface that allows the user to place the target, the starting points and the Meeples on the board
 - Commands for moving the Meeples
 - A function that returns all possible moves of a given Meeples (*not* taking into account the special powers)
+- Solving algorithm without Meeple powers
 
 ###To do
 - Add the special powers of each single Meeple
