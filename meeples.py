@@ -1,16 +1,20 @@
 import random
 import time
 import datetime
+from collections import deque
 
 # TODO add a way to disable meeples
 # TODO boardState and move could be integers that are then decoded. Probably much more efficient than creating new objects every time
+# TODO for example move could be an integer 4 bit hero id (or 5 with expansion), 2 bit direction, 4 bit power id (could also be 1 bit, true false. End position is in boardState anyway)
+# TODO boardState needs 8 x 2 x 5 bits for heroes positions, moves list, 3 bit for powers.
+# TODO powers are memorized both in moves and boardState, probably redundand
 # TODO parallelize?
 
-heroes_names = ('black','blue','brown','gray','green','red','white','yellow')
-heroes       = range(len(heroes_names))
+heroes_names    = ('black','blue','brown','gray','green','red','white','yellow')
+heroes          = range(len(heroes_names))
 
-directions     = [[0,1], [-1,0], [0,-1], [1,0]]
-directionNames = ("right","down","left","up")
+directions      = [[0,1], [-1,0], [0,-1], [1,0]]
+directionNames  = ("right","down","left","up")
 
 max_total_moves = 24
 max_moves       = 10
@@ -103,7 +107,7 @@ class Board():
                         else:
                             v = [v[0]+d[0], v[1]+d[1]]
 
-        # TODO precompute powers and add them to powerStops[id]...
+        # TODO precompute powers and add them to self.powerStops[id]...
 
 
                 
@@ -118,16 +122,18 @@ class Board():
         self.precomputeStops()
         
         # paths contains the list of moves done so far saved in boardState objects
-        paths = [boardState(self.heroesPositions.copy(), [] ,[False, False, False])] #do better
+        # paths = [boardState(self.heroesPositions.copy(), [] ,[False, False, False])] #do better
+        paths = deque([boardState(self.heroesPositions.copy(), [] ,[False, False, False])]) #do better 
+
         seenPositions = [paths[0].getHash()]
         
         print("--------------- LOOKING FOR SOLUTION ---------------")
         print("target in ", self.target)
         while(len(paths) > 0): 
-            path = paths.pop(0)
+            path = paths.popleft()
             numberOfCycles += 1
             if (numberOfCycles % 25000 == 0):
-                print("checking ",path.getNumberOfTotalMoves()," moves. Cycle ",numberOfCycles)
+                print("Checking solutions with ",path.getNumberOfTotalMoves()," moves. States checked: ",numberOfCycles)
                 
             successors = self.generateNextStates(path)
             
@@ -138,6 +144,7 @@ class Board():
                     break
                 if movesTested < successor.getNumberOfTotalMoves():
                     print("Something went wrong...") # check that number of tested moves is always increasing (I think)
+                    break
                 if successor.getLastPosition() == self.target:
                     print("** FOUND SOLUTION IN ",successor.getNumberOfTotalMoves()," MOVES! **")
                     print("# of cycles = ", numberOfCycles)
@@ -174,8 +181,6 @@ class Board():
                         if h == hero:
                             continue
                         hp = oldState.getPosition(h)
-                        
-                        #print("d = ", d, " hp = ", hp, " stop = ", stop, " hero_pos = ", hero_pos)
                         
                         #check for hero in same coord and in the right direction
                         if hp[0] == stop[0] and d == 0 and hero_pos[1] < hp[1] <= stop[1]:
@@ -271,7 +276,7 @@ class boardState:
     def __init__(self, positions, mov, pows):
         self.meeplePositions = positions
         self.moves = mov
-        self.usedPower = pows
+        self.usedPower = pows # needed?
     
     #returns number of total moves done until now
     def getNumberOfTotalMoves(self):
