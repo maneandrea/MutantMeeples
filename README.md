@@ -23,7 +23,9 @@ For instructions on how to use it read the initial message at startup.
 
 ###To do
 - Add the special powers of each single Meeple
-- Start writing the algorithm for finding the optimal solution
+- Add a way to disable Meeples
+- Add "atoms" (blue Meeple power)
+- Drag and Drop Meeples around the board
 - Maybe change the icons
 - A GUI way to change the size and the number of squares on the board (now they are parameters of the GUI class)
 - A way to turn on and off the animation (now it's hardcoded)
