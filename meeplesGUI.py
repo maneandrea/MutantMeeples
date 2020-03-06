@@ -9,6 +9,13 @@ from meeples import *
 dir_path = os.path.dirname(os.path.realpath(__file__))
 icon = dir_path + '/graphics/icon.png'
 
+"""
+TODO: Drag'n'Droppa pupini dalla mappa
+      Inserire gli atomini
+      Animazione della soluzione
+      Mettere lista di pupini attivi e farli diversi nella GUI
+"""
+
 #Returns a PhotoImage object with the image resized to the desired amount
 def resized_img(size, url):
     if isinstance(size, float) or isinstance(size, int):
@@ -62,7 +69,7 @@ class GUI:
 
         #Window
         master.title('Mutant Meeples')
-        master.geometry(f'{self.size+200}x{self.size+100}')
+        master.geometry(f'{self.size+200}x{self.size+300}')
         master.call('wm', 'iconphoto', master._w, PhotoImage(file = icon))
 
         #Canvas
@@ -457,6 +464,7 @@ class GUI:
         self.board.solve()
 
     def random_board(self, event=None):
+        self.selected.set('None')
         self.board.randomBoard()
 
 class Sidebar:
