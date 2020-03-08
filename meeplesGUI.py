@@ -10,10 +10,13 @@ dir_path = os.path.dirname(os.path.realpath(__file__))
 icon = dir_path + '/graphics/icon.png'
 
 """
-TODO: Drag'n'Droppa pupini dalla mappa
-      Inserire gli atomini
-      Animazione della soluzione
+TODO: Animazione della soluzione
       Mettere lista di pupini attivi e farli diversi nella GUI
+      Vedere se heroes position si aggiorna con la GUI
+      RISOLVERE PROBLEMA: Diversi oggetti che si sovrappongono (tipo atomini e start),
+          quando lo cancello dà errore
+      Faccio che anche il target va spostato direttamente dalla mappa o lo lascio lì?
+
 """
 
 #Returns a PhotoImage object with the image resized to the desired amount
@@ -25,7 +28,7 @@ def resized_img(size, url):
     return ImageTk.PhotoImage(img)
 
 all_colors = ('black','blue','brown','gray','green','red','white','yellow')
-all_colors_plus = ('black','blue','brown','gray','green','red','white','yellow', 'start', 'target')
+other_figures = ('start', 'target', 'blocked', 'atom')
 
 names = {
         'black':'Carbon',
@@ -44,16 +47,18 @@ class GUI:
     squares = 10
     animation_speed = .005
     #urls of pictures
-    black_url  = './graphics/Guy_black.png'
-    blue_url   = './graphics/Guy_blue.png'
-    brown_url  = './graphics/Guy_brown.png'
-    gray_url   = './graphics/Guy_gray.png'
-    green_url  = './graphics/Guy_green.png'
-    red_url    = './graphics/Guy_red.png'
-    white_url  = './graphics/Guy_white.png'
-    yellow_url = './graphics/Guy_yellow.png'
-    start_url  = './graphics/start.png'
-    target_url = './graphics/target.png'
+    black_url   = './graphics/Guy_black.png'
+    blue_url    = './graphics/Guy_blue.png'
+    brown_url   = './graphics/Guy_brown.png'
+    gray_url    = './graphics/Guy_gray.png'
+    green_url   = './graphics/Guy_green.png'
+    red_url     = './graphics/Guy_red.png'
+    white_url   = './graphics/Guy_white.png'
+    yellow_url  = './graphics/Guy_yellow.png'
+    start_url   = './graphics/start.png'
+    target_url  = './graphics/target.png'
+    atom_url    = './graphics/atom.png'
+    blocked_url = './graphics/blocked.png'
     
     def __init__(self, board, master):
         '''Initializes main windows'''
@@ -181,7 +186,9 @@ class GUI:
             'white'  : resized_img(size, self.white_url),
             'yellow' : resized_img(size, self.yellow_url),
             'target' : resized_img(size, self.target_url),
-            'start' : resized_img(size, self.start_url)
+            'start'  : resized_img(size, self.start_url),
+            'blocked': resized_img(size, self.blocked_url),
+            'atom'   : resized_img(size, self.atom_url)
             }[color]
 
     def walls_target_starts(self):
@@ -204,16 +211,17 @@ class GUI:
         for spr in self.sprites2:
             self.canvas.delete(spr['img'])
         
-        #Draws the starting point
-        for i, start in self.board.starts.items():
-            self.canvas.images.append(self.picture('start', factor))
-            self.sprites2.append(
-                {'img' : self.canvas.create_image(
-                             (start[1]*factor + offset,
-                              self.size - start[0]*factor - offset),
-                             image = self.canvas.images[-1],
-                             tag = i),
-                 'obj' : i})
+        #Draws the starting points, blocked cells and atoms
+        for name, collection in [('start', 'starts'), ('atom','atoms'), ('blocked', 'blocked')]:
+            for i, start in eval('self.board.'+collection+'.items()'):
+                self.canvas.images.append(self.picture(name, factor))
+                self.sprites2.append(
+                    {'img' : self.canvas.create_image(
+                                 (start[1]*factor + offset,
+                                  self.size - start[0]*factor - offset),
+                                 image = self.canvas.images[-1],
+                                 tag = name+str(i)),
+                     'obj' : name+str(i)})
         #Draws the target
         self.canvas.images.append(self.picture('target', factor))
         r,c = self.board.target
@@ -258,10 +266,12 @@ class GUI:
             self.canvas.tag_bind(self.sprites[-1]['img'], '<1>', self.on_piece_click(p))
             self.canvas.tag_bind(self.sprites[-1]['img'], '<3>', self.on_piece_right_down(p))
             self.canvas.tag_bind(self.sprites[-1]['img'], '<ButtonRelease-3>', self.on_piece_right_up)
+            self.canvas.tag_bind(self.sprites[-1]['img'], '<B1-Motion>', self.on_piece_drag(p))
+            self.canvas.tag_bind(self.sprites[-1]['img'], '<ButtonRelease-1>', self.on_piece_drop(p))
 
         #List of all walls
         self.drawn_walls = []
-        #Draw the walls, starts and target
+        #Draw the walls, starts, target, atoms and blocked cells
         self.walls_target_starts()
 
 
@@ -288,6 +298,8 @@ class GUI:
                 self.canvas.tag_bind(sprite['img'], '<1>', self.on_piece_click(p))
                 self.canvas.tag_bind(sprite['img'], '<3>', self.on_piece_right_down(p))
                 self.canvas.tag_bind(sprite['img'], '<ButtonRelease-3>', self.on_piece_right_up)
+                self.canvas.tag_bind(sprite['img'], '<B1-Motion>', self.on_piece_drag(p))
+                self.canvas.tag_bind(sprite['img'], '<ButtonRelease-1>', self.on_piece_drop(p))
             
         else:
             #Redraws just the selected piece
@@ -314,6 +326,8 @@ class GUI:
             self.canvas.tag_bind(sprite['img'], '<1>', self.on_piece_click(p))
             self.canvas.tag_bind(sprite['img'], '<3>', self.on_piece_right_down(p))
             self.canvas.tag_bind(sprite['img'], '<ButtonRelease-3>', self.on_piece_right_up)
+            self.canvas.tag_bind(sprite['img'], '<B1-Motion>', self.on_piece_drag(p))
+            self.canvas.tag_bind(sprite['img'], '<ButtonRelease-1>', self.on_piece_drop(p))
 
     def animate(self, sprite, origin, destination):
         '''Makes a small animation showing the piece moving'''
@@ -363,7 +377,7 @@ class GUI:
         return 'break'
 
     def select_previous(self, event=None):
-        '''Go to the next piece after tab has been pressed. Or makes it so that the fake widget doesn'r lose focus'''
+        '''Go to the next piece after tab has been pressed. Or makes it so that the fake widget doesn't lose focus'''
         if event.widget == self.canvas:
             self.canvas.focus_set()
             try:
@@ -379,7 +393,30 @@ class GUI:
     def on_piece_click(self, piece):
         '''A piece on the board has been clicked'''
         def f(event=None):
-            self.selected.set(piece.color)
+            if self.side.select_only.get():
+                self.selected.set(piece.color)
+            else:
+                self.side.on_click(piece.color)(event)
+            
+        return f
+
+    def on_piece_drag(self, piece):
+        '''A piece on the board has been dragged'''
+        def f(event=None):
+            if self.side.select_only.get():
+                pass
+            else:
+                self.side.on_drag(piece.color)(event)
+            
+        return f
+
+    def on_piece_drop(self, piece):
+        '''A piece on the board has been dropped'''
+        def f(event=None):
+            if self.side.select_only.get():
+                pass
+            else:
+                self.side.on_drop(piece.color)(event)
             
         return f
 
@@ -445,12 +482,17 @@ class GUI:
         if sel != 'None':
             self.side.stringlabel.set('Selected: '+names[sel])
             if sel in ['white', 'yellow']:
-                backg = 'black'
+                backg = 'gray35'
             elif sel == 'gray':
-                backg = 'white'
+                sel = 'gray25'
+                backg = 'gray94'
             else:
                 backg = self.master.cget('bg')
             self.side.label.config(fg=sel, bg=backg)
+        else:
+            self.side.stringlabel.set('')
+            backg = self.master.cget('bg')
+            self.side.label.config(fg='black', bg=backg)
             
 
     def check_finish(self, selected):
@@ -482,22 +524,25 @@ class Sidebar:
 
         #Size of pictures
         size = min(parent.size / parent.squares, 60)
+
+        #Select pieces or drag pieces when clicking on them
+        self.select_only = IntVar()
         
         #Define the buttons
         self.buttons = {}
         frame.columnconfigure(1, weight = 1, minsize = 10)
         for c in range(2):
             frame.columnconfigure(2*c, weight = 1, minsize = size)
-            for i, color in enumerate(all_colors_plus[c::2]):
-                pic = parent.picture(color, size)
-                self.buttons[color] = Button(frame, image = pic)
-                self.buttons[color].img = pic
-                self.buttons[color].bind('<Button-1>', self.on_click(color))
-                self.buttons[color].bind('<B1-Motion>', self.on_drag(color))
-                self.buttons[color].bind('<ButtonRelease-1>', self.on_drop(color))
+            for i, typ in enumerate(other_figures[c::2]):
+                pic = parent.picture(typ, size)
+                self.buttons[typ] = Button(frame, image = pic)
+                self.buttons[typ].img = pic
+                self.buttons[typ].bind('<Button-1>', self.on_click(typ))
+                self.buttons[typ].bind('<B1-Motion>', self.on_drag(typ))
+                self.buttons[typ].bind('<ButtonRelease-1>', self.on_drop(typ))
                 #
                 frame.rowconfigure(i, weight = 1)
-                self.buttons[color].grid(row = i, column = 2*c, sticky = 'w' if c else 'e')
+                self.buttons[typ].grid(row = i, column = 2*c, sticky = 'w' if c else 'e')
             #Now the walls
             vh = ('vertical','horizontal')[c]
             wallpic = self.wallpicture(vh, size)
@@ -511,6 +556,10 @@ class Sidebar:
             self.buttons[vh].grid(row = i+1, column = 2*c, sticky = 'w' if c else 'e')
 
         self.clear_walls = Button(frame, text = 'Clear all', command = self.clear, font = ('DejaVu Sans', 14))
+        self.toggle_button = Checkbutton(frame, text = 'Dragging', variable = self.select_only,
+                                         command = self.toggle_drag_select, font = ('DejaVu Sans', 14), indicatoron = 0)
+        self.random_button = Button(frame, text = 'Randomize', command = self.parent.random_board, font = ('DejaVu Sans', 14))
+        self.solve_button = Button(frame, text = 'Solve', command = self.parent.start_solve, font = ('DejaVu Sans', 14))
         eraser_pic = self.wallpicture('eraser', size)
         self.erasingQ = IntVar()
         self.erasingQ.set(0)
@@ -525,17 +574,31 @@ class Sidebar:
         frame.rowconfigure(0, weight = 1)
         frame.rowconfigure(6, weight = 1)
         frame.rowconfigure(7, weight = 1)
+        frame.rowconfigure(8, weight = 1)
+        frame.rowconfigure(9, weight = 1)
+        frame.rowconfigure(10, weight = 1)
+        frame.rowconfigure(11, weight = 1)
 
         #Grid everything
         frame.grid(row = 0, column = 1, sticky = 'news')
         self.eraser.grid(row = 6, column = 0, columnspan = 3)
         self.clear_walls.grid(row = 7, column = 0, columnspan = 3)
+        self.toggle_button.grid(row = 8, column = 0, columnspan = 3)
+        self.random_button.grid(row = 9, column = 0, columnspan = 3)
+        self.solve_button.grid(row = 10, column = 0, columnspan = 3)
 
         #Label
         self.stringlabel = StringVar()
         self.label = Label(frame, textvariable = self.stringlabel, font = ('DejaVu Sans', 12))
         frame.rowconfigure(8, weight = 1)
-        self.label.grid(row = 8, column = 0, columnspan = 3)
+        self.label.grid(row = 11, column = 0, columnspan = 3)
+
+    def toggle_drag_select(self):
+        '''Toggles between selecting or dragging pieces'''
+        if self.select_only.get():
+            self.toggle_button.config(text = 'Selecting')
+        else:
+            self.toggle_button.config(text = 'Dragging')
 
 
     def wallpicture(self, wall, size):
@@ -551,7 +614,11 @@ class Sidebar:
         '''Places canvas on the spot'''
         def f(event):
             (vx, vy) = (event.x_root - self.parent.master.winfo_x(), event.y_root - self.parent.master.winfo_y())
-            self.floating.remember_image = self.buttons[colororwall].img
+            if colororwall in other_figures:
+                self.floating.remember_image = self.buttons[colororwall].img
+            else:
+                size = min(self.parent.size / self.parent.squares, 60)
+                self.floating.remember_image = self.parent.picture(colororwall, size)
             self.floating.image = self.floating.create_image((0,0), image = self.floating.remember_image, anchor = NW)
             self.floating.place(x = vx, y = vy, anchor = CENTER)
             
@@ -580,7 +647,7 @@ class Sidebar:
             s = self.parent.size
             r = self.parent.size / self.parent.squares
             n = self.parent.squares
-            if piece_or_wall in ['color', 'target', 'start']:
+            if piece_or_wall in ['color', 'target', 'start', 'blocked', 'atom']:
                 col = math.floor(x/r)
                 row = n - math.floor(y/r) - 1
                 if 0 <= row < n and 0 <= col < n:
@@ -621,7 +688,11 @@ class Sidebar:
                     self.parent.board.place_wall(*getpos, colororwall)
                 elif piece_or_wall == 'target':
                     self.parent.board.place_target(*getpos)
-                else:
+                elif piece_or_wall == 'atom':
+                    self.parent.board.add_atom(*getpos)
+                elif piece_or_wall == 'blocked':
+                    self.parent.board.add_blocked(*getpos)
+                elif piece_or_wall == 'start':
                     self.parent.board.add_start(*getpos)
                 self.parent.selected.set('None')
                 self.parent.redraw_canvas()
@@ -632,6 +703,8 @@ class Sidebar:
         '''Clears the walls'''
         self.parent.board.walls = []
         self.parent.board.starts = {}
+        self.parent.board.atoms = {}
+        self.parent.board.blocked = {}
         self.parent.selected.set('None')
         self.parent.redraw_canvas()
 
@@ -666,8 +739,16 @@ class Sidebar:
             for a in self.parent.sprites2:
                 if a['img'] == w and a['obj'] != 'target':
                     can.delete(a['img'])
-                    del self.parent.board.starts[a['obj']]
+                    if a['obj'][:4] == 'atom':
+                        i = int(a['obj'][4:])
+                        del self.parent.board.atoms[i]
+                    elif a['obj'][:5] == 'start':
+                        i = int(a['obj'][5:])
+                        del self.parent.board.starts[i]
+                    elif a['obj'][:7] == 'blocked':
+                        i = int(a['obj'][7:])
+                        del self.parent.board.blocked[i]
                     self.parent.selected.set('None')
                     self.parent.redraw_canvas()
-                    print(f"The starting point with id {a['obj']} has been erased")
+                    print(f"The starting point with id {i} has been erased")
                     break

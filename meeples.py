@@ -24,6 +24,8 @@ class Board():
         '''Initializes the board'''
         self.pieces = {}
         self.starts = {}
+        self.atoms = {}
+        self.blocked = {}
         self.size = size
         self.stops = []
         self.canvas = canvas
@@ -79,6 +81,22 @@ class Board():
             unique = max([a for a in self.starts.keys()]) + 1
         self.starts[unique] = pos
         print(f'Added start with id {unique}')
+
+    def add_blocked(self, *pos):
+        if len(self.blocked) == 0:
+            unique = 0
+        else:
+            unique = max([a for a in self.blocked.keys()]) + 1
+        self.blocked[unique] = pos
+        print(f'Added blocked cell with id {unique}')
+
+    def add_atom(self, *pos):
+        if len(self.atoms) == 0:
+            unique = 0
+        else:
+            unique = max([a for a in self.atoms.keys()]) + 1
+        self.atoms[unique] = pos
+        print(f'Added atom with id {unique}')
      
     def isWall(self, x, y, v):
         if v == [1,0] and (x+1 >= self.size or (x+1, y, x+1, y+1) in self.walls):
