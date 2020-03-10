@@ -13,10 +13,7 @@ icon = dir_path + '/graphics/icon.png'
 TODO: Animazione della soluzione
       Mettere lista di pupini attivi e farli diversi nella GUI
       Vedere se heroes position si aggiorna con la GUI
-      RISOLVERE PROBLEMA: Diversi oggetti che si sovrappongono (tipo atomini e start),
-          quando lo cancello dà errore
-      Faccio che anche il target va spostato direttamente dalla mappa o lo lascio lì?
-
+      Mettere salva e carica delle posizioni
 """
 
 #Returns a PhotoImage object with the image resized to the desired amount
@@ -59,6 +56,9 @@ class GUI:
     target_url  = './graphics/target.png'
     atom_url    = './graphics/atom.png'
     blocked_url = './graphics/blocked.png'
+    vertical_url  = './graphics/Vertical.png'
+    horizontal_url= './graphics/Horizontal.png'
+    eraser_url  = './graphics/eraser.png'
     
     def __init__(self, board, master):
         '''Initializes main windows'''
@@ -188,7 +188,10 @@ class GUI:
             'target' : resized_img(size, self.target_url),
             'start'  : resized_img(size, self.start_url),
             'blocked': resized_img(size, self.blocked_url),
-            'atom'   : resized_img(size, self.atom_url)
+            'atom'   : resized_img(size, self.atom_url),
+            'vertical'  : resized_img(size, self.vertical_url),
+            'horizontal': resized_img(size, self.horizontal_url),
+            'eraser' : resized_img(size, self.eraser_url)
             }[color]
 
     def walls_target_starts(self):
@@ -232,6 +235,11 @@ class GUI:
                          image = self.canvas.images[-1],
                          tag = 'target'),
              'obj' : 'target'})
+        self.canvas.tag_bind(self.sprites2[-1]['img'], '<1>', self.side.on_click('target'))
+        self.canvas.tag_bind(self.sprites2[-1]['img'], '<B1-Motion>', self.side.on_drag('target'))
+        self.canvas.tag_bind(self.sprites2[-1]['img'], '<ButtonRelease-1>', self.side.on_drop('target'))
+        self.canvas.tag_bind(self.sprites2[-1]['img'], '<Enter>', self.change_cursor('enter', True))
+        self.canvas.tag_bind(self.sprites2[-1]['img'], '<Leave>', self.change_cursor('exit', True))
         
 
     def draw_canvas(self):
@@ -268,6 +276,8 @@ class GUI:
             self.canvas.tag_bind(self.sprites[-1]['img'], '<ButtonRelease-3>', self.on_piece_right_up)
             self.canvas.tag_bind(self.sprites[-1]['img'], '<B1-Motion>', self.on_piece_drag(p))
             self.canvas.tag_bind(self.sprites[-1]['img'], '<ButtonRelease-1>', self.on_piece_drop(p))
+            self.canvas.tag_bind(self.sprites[-1]['img'], '<Enter>', self.change_cursor('enter'))
+            self.canvas.tag_bind(self.sprites[-1]['img'], '<Leave>', self.change_cursor('exit'))
 
         #List of all walls
         self.drawn_walls = []
@@ -300,6 +310,8 @@ class GUI:
                 self.canvas.tag_bind(sprite['img'], '<ButtonRelease-3>', self.on_piece_right_up)
                 self.canvas.tag_bind(sprite['img'], '<B1-Motion>', self.on_piece_drag(p))
                 self.canvas.tag_bind(sprite['img'], '<ButtonRelease-1>', self.on_piece_drop(p))
+                self.canvas.tag_bind(sprite['img'], '<Enter>', self.change_cursor('enter'))
+                self.canvas.tag_bind(sprite['img'], '<Leave>', self.change_cursor('exit'))
             
         else:
             #Redraws just the selected piece
@@ -328,6 +340,8 @@ class GUI:
             self.canvas.tag_bind(sprite['img'], '<ButtonRelease-3>', self.on_piece_right_up)
             self.canvas.tag_bind(sprite['img'], '<B1-Motion>', self.on_piece_drag(p))
             self.canvas.tag_bind(sprite['img'], '<ButtonRelease-1>', self.on_piece_drop(p))
+            self.canvas.tag_bind(sprite['img'], '<Enter>', self.change_cursor('enter'))
+            self.canvas.tag_bind(sprite['img'], '<Leave>', self.change_cursor('exit'))
 
     def animate(self, sprite, origin, destination):
         '''Makes a small animation showing the piece moving'''
@@ -353,6 +367,20 @@ class GUI:
         #Releases the grab
         self.fake.grab_release()
         self.canvas.focus_set()
+
+    def change_cursor(self, event, override=False):
+        '''Change the cursor to the grabbing hand'''
+        def hand(event=None):
+            if override or self.side.select_only.get() == 0:
+                if not self.side.erasingQ.get():
+                    self.master.config(cursor = 'hand2')
+        def arrow(event=None):
+            if not self.side.erasingQ.get():
+                self.master.config(cursor = 'arrow')
+        if event == 'enter':
+            return hand
+        else:
+            return arrow
 
     def focus_handle(self, event=None):
         '''Give or take focus away from the canvas'''
@@ -503,7 +531,9 @@ class GUI:
     
     
     def start_solve(self, event=None):
+        self.master.config(cursor = 'watch')
         self.board.solve()
+        self.master.config(cursor = 'arrow')
 
     def random_board(self, event=None):
         self.selected.set('None')
@@ -512,10 +542,6 @@ class GUI:
 class Sidebar:
     '''The sidebar that allows us to choose the pieces and the walls to put on the board'''
 
-    #urls of pictures
-    vertical_url  = './graphics/Vertical.png'
-    horizontal_url   = './graphics/Horizontal.png'
-    eraser_url   = './graphics/eraser.png'
     
     def __init__(self, parent):
         '''Initializes the sidebar'''
@@ -527,6 +553,9 @@ class Sidebar:
 
         #Select pieces or drag pieces when clicking on them
         self.select_only = IntVar()
+
+        #For scheduling the eraser cancellations with after
+        self.schedule = None
         
         #Define the buttons
         self.buttons = {}
@@ -545,7 +574,7 @@ class Sidebar:
                 self.buttons[typ].grid(row = i, column = 2*c, sticky = 'w' if c else 'e')
             #Now the walls
             vh = ('vertical','horizontal')[c]
-            wallpic = self.wallpicture(vh, size)
+            wallpic = self.parent.picture(vh, size)
             self.buttons[vh] = Button(frame, image = wallpic)
             self.buttons[vh].img = wallpic
             self.buttons[vh].bind('<Button-1>', self.on_click(vh))
@@ -560,7 +589,7 @@ class Sidebar:
                                          command = self.toggle_drag_select, font = ('DejaVu Sans', 14), indicatoron = 0)
         self.random_button = Button(frame, text = 'Randomize', command = self.parent.random_board, font = ('DejaVu Sans', 14))
         self.solve_button = Button(frame, text = 'Solve', command = self.parent.start_solve, font = ('DejaVu Sans', 14))
-        eraser_pic = self.wallpicture('eraser', size)
+        eraser_pic = self.parent.picture('eraser', size)
         self.erasingQ = IntVar()
         self.erasingQ.set(0)
         self.eraser = Checkbutton(frame, image = eraser_pic, command = self.erase, variable = self.erasingQ, indicatoron=0)
@@ -601,15 +630,6 @@ class Sidebar:
             self.toggle_button.config(text = 'Dragging')
 
 
-    def wallpicture(self, wall, size):
-        '''Pictures of walls, or the eraser'''
-        return {
-            'vertical'  : resized_img(size, self.vertical_url),
-            'horizontal'   : resized_img(size, self.horizontal_url),
-            'eraser' : resized_img(size, self.eraser_url)
-            }[wall]
-
-
     def on_click(self, colororwall):
         '''Places canvas on the spot'''
         def f(event):
@@ -628,6 +648,9 @@ class Sidebar:
     def on_drag(self, colororwall):
         '''Drags the canvas along with the mouse'''
         def f(event):
+            if self.erasingQ.get():
+                self.erasingQ.set(0)
+                self.parent.canvas.unbind('<B1-Motion>', self.canvasbinding)
             (vx, vy) = (event.x_root - self.parent.master.winfo_rootx(), event.y_root - self.parent.master.winfo_rooty())
             self.floating.place(x = vx, y = vy, anchor = CENTER)
             self.frame.update()
@@ -635,6 +658,7 @@ class Sidebar:
             #This is temporary
             piece_or_wall = 'color' if colororwall in all_colors else colororwall
             row,col = self.get_pos(vx,vy, piece_or_wall)
+            self.parent.master.config(cursor = 'hand2')
 
         return f
 
@@ -676,6 +700,7 @@ class Sidebar:
             getpos = self.get_pos(vx, vy, piece_or_wall)
             self.floating.place_forget()
             self.floating.delete(self.floating.image)
+            self.parent.master.config(cursor = 'arrow')
 
             if getpos == (None, None):
                 return None
@@ -711,7 +736,6 @@ class Sidebar:
     def erase(self):
         '''Erases walls by dragging the mouse on them or by clicking'''
         erasing = self.erasingQ.get()
-        self.stringlabel.set('Erase walls' if erasing else '')
         self.parent.master.config(cursor = 'X_cursor' if erasing else '')
         #Binds an event to the canvas that keeps track of mouse movement with button pressed
         if erasing:
@@ -722,33 +746,39 @@ class Sidebar:
     def move_eraser_around(self, event):
         '''A general event for the canvas that makes it possible to bind a <Enter> event to the walls with the mouse down'''
         s = self.parent.size / self.parent.squares
-        can = self.parent.canvas
-        widgets = can.find_overlapping(event.x-s/4,
-                                       event.y-s/4,
-                                       event.x+s/4,
-                                       event.y+s/4)
-        for w in widgets:
-            for a in self.parent.drawn_walls:
-                if a[0] == w:
-                    can.delete(a[0])
-                    self.parent.board.walls.remove(a[1])
-                    self.parent.selected.set('None')
-                    self.parent.redraw_canvas()
-                    print('The wall has been erased')
-                    break
-            for a in self.parent.sprites2:
-                if a['img'] == w and a['obj'] != 'target':
-                    can.delete(a['img'])
-                    if a['obj'][:4] == 'atom':
-                        i = int(a['obj'][4:])
-                        del self.parent.board.atoms[i]
-                    elif a['obj'][:5] == 'start':
-                        i = int(a['obj'][5:])
-                        del self.parent.board.starts[i]
-                    elif a['obj'][:7] == 'blocked':
-                        i = int(a['obj'][7:])
-                        del self.parent.board.blocked[i]
-                    self.parent.selected.set('None')
-                    self.parent.redraw_canvas()
-                    print(f"The starting point with id {i} has been erased")
-                    break
+        
+        def funct():
+            can = self.parent.canvas
+            widgets = can.find_overlapping(event.x-s/4,
+                                           event.y-s/4,
+                                           event.x+s/4,
+                                           event.y+s/4)
+            for w in widgets:
+                for a in self.parent.drawn_walls:
+                    if a[0] == w:
+                        can.delete(a[0])
+                        self.parent.board.walls.remove(a[1])
+                        self.parent.selected.set('None')
+                        self.parent.redraw_canvas()
+                        print('The wall has been erased')
+                        break
+                for a in self.parent.sprites2:
+                    if a['img'] == w and a['obj'] != 'target':
+                        can.delete(a['img'])
+                        if a['obj'][:4] == 'atom':
+                            i = int(a['obj'][4:])
+                            del self.parent.board.atoms[i]
+                        elif a['obj'][:5] == 'start':
+                            i = int(a['obj'][5:])
+                            del self.parent.board.starts[i]
+                        elif a['obj'][:7] == 'blocked':
+                            i = int(a['obj'][7:])
+                            del self.parent.board.blocked[i]
+                        self.parent.selected.set('None')
+                        self.parent.redraw_canvas()
+                        print(f"The starting point with id {i} has been erased")
+                        break
+
+        if not self.schedule is None:
+            self.parent.master.after_cancel(self.schedule)
+        self.schedule = self.parent.master.after(1, funct)

@@ -51,7 +51,8 @@ class Board():
         self.target = squares[-1]
         self.heroesPositions = squares[:-1]
         for n, c in enumerate(heroes_names):
-            self.pieces[c].place(*self.heroesPositions[n])
+            self.pieces[c].row = self.heroesPositions[n][0]
+            self.pieces[c].col = self.heroesPositions[n][1]
         self.canvas.redraw_canvas()
 
     def place_wall(self, pos1, pos2, vorh):
@@ -68,7 +69,6 @@ class Board():
             self.walls.append((r1,c1,r2,c2))
             print(f'Horizontal wall placed at ({r1},{c1})--({r2},{c2})')
             
-        print(self.walls)
 
     def place_target(self, *pos):
         self.target = list(pos)
@@ -231,6 +231,8 @@ class Board():
         return result
 
 class Sprite():
+    '''This class is a bit superfluous, I could just access to heroesPosition from
+       the GUI. It's true though that it's useful for showing the available moves.'''
     def __init__(self, master, color, *pos):
         '''Initializes the single piece'''
         self.color = color
@@ -288,6 +290,11 @@ class Sprite():
             if pos == (other.row, other.col):
                 return None
         self.row, self.col = pos
+        #This re-creates the entire list. We have to do it only after drag and drops
+        temp = []
+        for c in heroes_names:
+            temp.append([self.master.pieces[c].row,self.master.pieces[c].col])
+        self.master.heroesPositions = temp
 
 class boardState:
     
