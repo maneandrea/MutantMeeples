@@ -41,7 +41,7 @@ names = {
 class GUI:
 
     size = 600
-    squares = 10
+    squares = 18
     animation_speed = .005
     #urls of pictures
     black_url   = './graphics/Guy_black.png'

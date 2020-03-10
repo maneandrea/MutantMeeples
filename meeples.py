@@ -5,16 +5,18 @@ from collections import deque
 
 # TODO add a way to disable meeples
 # TODO boardState and move could be integers that are then decoded. Probably much more efficient than creating new objects every time
-# TODO for example move could be an integer 4 bit hero id (or 5 with expansion), 2 bit direction, 4 bit power id (could also be 1 bit, true false. End position is in boardState anyway)
+# TODO boardState could be a dictionary of positions, moves and powers. Mothods would then become static. Probably faster
 # TODO boardState needs 8 x 2 x 5 bits for heroes positions, moves list, 3 bit for powers.
-# TODO powers are memorized both in moves and boardState, probably redundand
+# TODO powers are memorized both in moves and boardState, maybe redundand
 # TODO parallelize?
+# TODO check compatibility between this and the GUI script
+# TODO powerId in move could be replaced by True/False. Start and end of them move contain all the informatioms
 
-heroes_names    = ('black','blue','brown','gray','green','red','white','yellow')
+heroes_names    = ['black','blue','brown','gray','green','red','white','yellow']
 heroes          = range(len(heroes_names))
 
 directions      = [[0,1], [-1,0], [0,-1], [1,0]]
-directionNames  = ("right","down","left","up")
+directionNames  = ["right","down","left","up"]
 
 max_total_moves = 24
 max_moves       = 10
@@ -38,11 +40,33 @@ class Board():
         for n, c in enumerate(heroes_names):
             self.pieces[c] = Sprite(self, c, *self.heroesPositions[n])
         
+        self.walls = []
         # starting configuration to see if solver works
-        self.walls = [(9,1,10,1),(6,1,6,2),(8,7,9,7),(3,9,3,10),(0,2,1,2),(3,5,3,6),
-                      (5,4,6,4),(5,3,5,4),(3,1,4,1),(1,8,1,9),(6,6,7,6),(9,4,9,5),
-                      (8,9,8,10),(1,4,2,4),(1,4,2,4),(7,6,7,7),(7,3,8,3),(4,8,5,8),
-                      (2,0,2,1),(3,2,3,3),(5,5,5,6)]
+        #self.walls = [(9,1,10,1),(6,1,6,2),(8,7,9,7),(3,9,3,10),(0,2,1,2),(3,5,3,6),
+        #              (5,4,6,4),(5,3,5,4),(3,1,4,1),(1,8,1,9),(6,6,7,6),(9,4,9,5),
+        #              (8,9,8,10),(1,4,2,4),(1,4,2,4),(7,6,7,7),(7,3,8,3),(4,8,5,8),
+        #              (2,0,2,1),(3,2,3,3),(5,5,5,6)]
+
+        self.walls = [(0, 2, 1, 2), (2, 1, 3, 1), (3, 1, 3, 2), (4, 0, 4, 1), 
+                      (4, 4, 4, 5), (4, 5, 5, 5), (6, 3, 6, 4), (7, 1, 7, 2), 
+                      (6, 2, 7, 2), (8, 2, 8, 3), (10, 0, 10, 1), (9, 3, 10, 3), 
+                      (11, 2, 11, 3), (11, 2, 12, 2), (10, 4, 11, 4), (10, 4, 10, 5), 
+                      (13, 1, 14, 1), (15, 2, 16, 2), (16, 3, 17, 3), (16, 3, 16, 4), 
+                      (17, 5, 18, 5), (15, 5, 15, 6), (12, 5, 13, 5), (13, 7, 14, 7), 
+                      (14, 6, 14, 7), (14, 8, 14, 9), (15, 8, 16, 8), (16, 10, 17, 10), 
+                      (17, 9, 17, 10), (17, 13, 18, 13), (16, 15, 16, 16), (15, 11, 15, 12), 
+                      (14, 11, 15, 11), (12, 10, 12, 11), (14, 13, 14, 14), (14, 15, 15, 15), 
+                      (15, 17, 15, 18), (12, 17, 13, 17), (12, 16, 12, 17), (11, 7, 11, 8), 
+                      (11, 12, 12, 12), (10, 11, 11, 11), (10, 10, 10, 11), (11, 14, 11, 15), 
+                      (9, 14, 10, 14), (9, 12, 9, 13), (8, 6, 9, 6), (8, 6, 8, 7), 
+                      (7, 7, 8, 7), (6, 7, 7, 7), (6, 7, 6, 8), (4, 7, 5, 7), 
+                      (2, 8, 3, 8), (2, 8, 2, 9), (1, 5, 2, 5), (1, 5, 1, 6), 
+                      (0, 8, 1, 8), (0, 12, 1, 12), (1, 14, 2, 14), (1, 15, 1, 16), 
+                      (3, 10, 4, 10), (5, 9, 6, 9), (8, 9, 8, 10), (7, 11, 7, 12), 
+                      (8, 16, 9, 16), (7, 15, 8, 15), (6, 17, 6, 18), (5, 16, 6, 16), 
+                      (3, 16, 3, 17), (3, 17, 4, 17), (5, 13, 5, 14), (4, 14, 4, 15), 
+                      (3, 12, 3, 13), 
+                      (17, 1, 18, 1), (17, 0, 17, 1), (0, 17, 1, 17), (1, 17, 1, 18)] 
 
     def randomBoard(self):
         squares = random.sample([[a,b] for a in range(self.size) for b in range(self.size)]
@@ -111,21 +135,109 @@ class Board():
             return False
         
     def precomputeStops(self):
+        stops = []
+        powerStops = []
+
+        powerFcns = {
+            'black':  self.blackStops,
+            'blue':   self.blueStops,
+            'brown':  self.brownStops,
+            'gray':   self.grayStops,
+            'green':  self.greenStops,
+            'red':    self.redStops,
+            'white':  self.whiteStops,
+            'yellow': self.yellowStops        
+        }
+
         for i in range(self.size):
-            self.stops.append([])
+            stops.append([])
             for j in range(self.size):
-                self.stops[i].append([])
+                stops[i].append([])
                 for d in directions:
                     v = [i, j]
                     done = False
                     while not done:
                         if self.isWall(v[0], v[1], d):
                             done = True
-                            self.stops[i][j].append(v)
+                            stops[i][j].append(v)
                         else:
                             v = [v[0]+d[0], v[1]+d[1]]
 
+        for heroid, heroname in enumerate(heroes_names):
+            powerStops.append([])
+            for i in range(self.size):
+                powerStops[heroid].append([])
+                for j in range(self.size):
+                    ps = powerFcns[heroname](i,j)
+                    powerStops[heroid][i].append(ps)
+
         # TODO precompute powers and add them to self.powerStops[id]...
+        return stops, powerStops
+
+    def redStops(self, i, j):
+        res = []
+        if not self.isWall(i, j, [0,1]):
+            res.append([i, j+1])
+        if not self.isWall(i, j, [-1,0]):
+            res.append([i-1, j])
+        if not self.isWall(i, j, [0,-1]):
+            res.append([i, j-1])
+        if not self.isWall(i, j, [1,0]):
+            res.append([i+1, j])
+        return res
+
+    # TODO check for continuous wall
+    def whiteStops(self, i, j):
+        res = []
+        if i+1 < self.size and j+1 < self.size and not (self.isWall(i, j, [1,0]) and self.isWall(i, j, [0,1])):
+            res.append([i+1, j+1])
+        if i+1 < self.size and j>0 and not (self.isWall(i, j, [1,0]) and self.isWall(i, j, [0,-1])):
+            res.append([i+1, j-1])
+        if i>0 and j+1 < self.size and not (self.isWall(i, j, [-1,0]) and self.isWall(i, j, [0,1])):
+            res.append([i-1, j+1])
+        if i>0 and j>0 and not (self.isWall(i, j, [-1,0]) and self.isWall(i, j, [0,-1])):
+            res.append([i-1, j-1])
+        return res
+
+    def greenStops(self, i, j):
+        res = []
+        if j+3 < self.size:
+            res.append([i, j+3])
+        if i > 2:
+            res.append([i-3, j])
+        if j > 2:
+            res.append([i, j-3])
+        if i+3 < self.size:
+            res.append([i+3, j])
+        return res
+
+    def grayStops(self, i, j):
+        return []
+
+    def blueStops(self, i, j):
+        return []
+
+    def yellowStops(self, i, j):
+        return []
+
+    def brownStops(self, i, j):
+        res = []
+        for d in directions:
+            v = [i, j]
+            done = False
+            while not done:
+                if self.isWall(v[0], v[1], d):
+                    done = True
+                    if v != [i, j]:
+                        v = [v[0]-d[0], v[1]-d[1]]
+                        res.append(v)
+                else:
+                    v = [v[0]+d[0], v[1]+d[1]]
+        return res
+
+    def blackStops(self, i, j):
+        # special case, handled later
+        return []
 
 
                 
@@ -136,14 +248,14 @@ class Board():
         movesTested = 0
         
         print("Precomputing stops...")
-        self.stops = []
-        self.precomputeStops()
+        stops, powerStops = self.precomputeStops()
         
         # paths contains the list of moves done so far saved in boardState objects
-        # paths = [boardState(self.heroesPositions.copy(), [] ,[False, False, False])] #do better
-        paths = deque([boardState(self.heroesPositions.copy(), [] ,[False, False, False])]) #do better 
+        # paths = [boardState(self.heroesPositions.copy(), [] ,[False, False, False])]
+        paths = deque([boardState(self.heroesPositions.copy(), [] ,[False,False,False,False,False,False,False,False])])
 
-        seenPositions = [paths[0].getHash()]
+        # TODO use ordered list. more efficient lookup
+        # seenPositions = [paths[0].getHash()]
         
         print("--------------- LOOKING FOR SOLUTION ---------------")
         print("target in ", self.target)
@@ -153,13 +265,10 @@ class Board():
             if (numberOfCycles % 25000 == 0):
                 print("Checking solutions with ",path.getNumberOfTotalMoves()," moves. States checked: ",numberOfCycles)
                 
-            successors = self.generateNextStates(path)
+            successors = self.generateNextStates(path, stops, powerStops)
             
             for successor in successors:
                 movesTested = max(movesTested,successor.getNumberOfTotalMoves())
-                if movesTested > max_total_moves:
-                    print("More than ", max_total_moves, " are needed")
-                    break
                 if movesTested < successor.getNumberOfTotalMoves():
                     print("Something went wrong...") # check that number of tested moves is always increasing (I think)
                     break
@@ -175,24 +284,24 @@ class Board():
                 else:
                     # TODO if I haven't seen this position already... (if !successor.getHash() in seenPositions...)
                     paths.append(successor)
-                    seenPositions.append(successor.getHash())
+                    # seenPositions.append(successor.getHash())
         print("Solution not found")
         return None
     
     # given a boardState, returns all the possible future states. 
-    def generateNextStates(self, oldState):
+    def generateNextStates(self, oldState, stops, powerStops):
         result = []
         for hero in heroes:
             if oldState.canMove(hero):
                 hero_pos = oldState.getPosition(hero)
                 dirs = list(range(4))
                 lastDir = oldState.getLastDirectionMoved()
-                # if I have moved this guy the previous move
-                if oldState.getLastHeroMoved() == hero and lastDir >= 0:
+                # if I have moved this guy the previous move with a normal move
+                if oldState.getLastHeroMoved() == hero and not oldState.lastMoveWasPower() and  lastDir >= 0:
                     dirs.remove(lastDir) # removes direction same as last move
-                    dirs.remove((lastDir + 2) % 4) #removes direction opposite of last move
+                    dirs.remove((lastDir + 2) % 4) # removes direction opposite of last move
                 for d in dirs:
-                    stop = self.stops[hero_pos[0]][hero_pos[1]][d].copy()
+                    stop = stops[hero_pos[0]][hero_pos[1]][d].copy()
                     if stop == hero_pos:
                         continue
                     for h in heroes:
@@ -200,14 +309,14 @@ class Board():
                             continue
                         hp = oldState.getPosition(h)
                         
-                        #check for hero in same coord and in the right direction
-                        if hp[0] == stop[0] and d == 0 and hero_pos[1] < hp[1] <= stop[1]:
+                        # check for hero in same coord and in the right direction
+                        if   d == 0 and hp[0] == stop[0] and hero_pos[1] < hp[1] <= stop[1]:
                             stop[1] = hp[1] - 1                       
-                        elif hp[1] == stop[1] and d == 1 and stop[0] <= hp[0] < hero_pos[0]:
+                        elif d == 1 and hp[1] == stop[1] and stop[0] <= hp[0] < hero_pos[0]:
                             stop[0] = hp[0] + 1
-                        elif hp[0] == stop[0] and d == 2 and stop[1] <= hp[1] < hero_pos[1]:
+                        elif d == 2 and hp[0] == stop[0] and stop[1] <= hp[1] < hero_pos[1]:
                             stop[1] = hp[1] + 1
-                        elif hp[1] == stop[1] and d == 3 and hero_pos[0] < hp[0] <= stop[0]:
+                        elif d == 3 and hp[1] == stop[1] and hero_pos[0] < hp[0] <= stop[0]:
                             stop[0] = hp[0] - 1
                     if stop != hero_pos:
                         positions = oldState.getPositions().copy()
@@ -215,14 +324,75 @@ class Board():
                         result.append(boardState(positions, oldState.getMoves().copy(), oldState.getPowerUsed().copy()))
                         result[-1].addMove(hero, d, hero_pos, stop, -1)
                                                             
-                    #if not oldState.powerUsed(hero):
-                        # TODO
-                        # stop = powerstop[hero][x,y,d]
+                if not oldState.powerUsed(hero):
+                    if hero == 0:
+                        # black...
+                        # loop on all others hero. If they can use the power append those stops
+                        continue
+                    else:
+                        pStops = powerStops[hero][hero_pos[0]][hero_pos[1]].copy()
+                        for d, pstop in enumerate(pStops):
+                            if pstop == hero_pos:
+                                continue
+                            # TODO check if red & green moves are redundant (in same dir as previous move)
+                            if heroes_names[hero] in ['red','white','green','blue']: # is this slow?
+                                for h in heroes:
+                                    if h == hero or pstop == oldState.getPosition(h):
+                                        continue                                    
+                                if pstop != hero_pos:
+                                    positions = oldState.getPositions().copy()
+                                    positions[hero] = pstop
+                                    result.append(boardState(positions, oldState.getMoves().copy(), oldState.getPowerUsed().copy()))
+                                    result[-1].addMove(hero, 0, hero_pos, pstop, hero)
+                                    result[-1].setPowerUsed(hero, True)
+                            elif heroes_names[hero] == 'brown':
+                                for h in heroes:
+                                    if h == hero:
+                                        continue
+                                    hp = oldState.getPosition(h)
+
+                                    if   d == 0 and hp[0] == pstop[0] and hero_pos[1] < hp[1] <= pstop[1]:
+                                        if hp[1] == hero_pos[1] + 1:
+                                            pstop = hero_pos
+                                            break
+                                        else:
+                                            pstop[1] = hp[1] - 2
+                                    elif d == 1 and hp[1] == pstop[1] and pstop[0] <= hp[0] < hero_pos[0]:
+                                        if hp[0] == hero_pos[0] - 1:
+                                            pstop = hero_pos
+                                            break
+                                        else:
+                                            pstop[0] = hp[0] + 2
+                                    elif d == 2 and hp[0] == pstop[0] and pstop[1] <= hp[1] < hero_pos[1]:
+                                        if hp[1] == hero_pos[1] - 1:
+                                            pstop = hero_pos
+                                            break
+                                        else:
+                                            pstop[1] = hp[1] + 2
+                                    elif d == 3 and hp[1] == pstop[1] and hero_pos[0] < hp[0] <= pstop[0]:
+                                        if hp[0] == hero_pos[0] + 1:
+                                            pstop = hero_pos
+                                            break
+                                        else:
+                                            pstop[0] = hp[0] - 2
+                                if pstop != hero_pos:
+                                    positions = oldState.getPositions().copy()
+                                    positions[hero] = pstop
+                                    result.append(boardState(positions, oldState.getMoves().copy(), oldState.getPowerUsed().copy()))
+                                    result[-1].addMove(hero, d, hero_pos, pstop, hero)
+                                    result[-1].setPowerUsed(hero, True)
+                            elif heroes_names[hero] == 'yellow':
+                                # check heroes in that direction between stop and pstop but wrapped 
+                                continue
+                            elif heroes_names[hero] == 'gray':
+                                # chec heroes in that direction between stop and pstop
+                                continue
+
                         # check that I can do that (different for every power)
                         # 
                         # blue   --- no other hero in final position
                         # brown  --- same as normal move check, but stopping 1 square early
-                        # gray   --- no hero inbetween (the wall in the middle is automatically ignored)
+                        # gray   --- no hero inbetween (the wall in the middle is automatically ignored) tizio prima del muro ignora, dopo il muro allora conta
                         # green  --- no other hero in final position
                         # red    --- no other hero in final position
                         # white  --- no other hero in final position
@@ -249,15 +419,15 @@ class Sprite():
             row,col = start
         nrow, ncol = (vr + row, vc + col)
 
-        #Out of bounds
+        # Out of bounds
         if nrow < 0 or ncol < 0 or nrow >= size or ncol >= size:
             return False
-        #Colliding with other pieces
+        # Colliding with other pieces
         for other in self.master.pieces.values():
             if not other is self:
                 if (nrow, ncol) == (other.row, other.col):
                     return False
-        #Colliding with walls
+        # Colliding with walls
         v = vr,vc
         if v == (1,0) and (nrow,ncol,nrow,ncol+1) in self.master.walls:
             return False
@@ -283,7 +453,6 @@ class Sprite():
                 moves.append(move)
 
         return moves
-            
 
     def place(self, *pos):
         for other in self.master.pieces.values():
@@ -303,11 +472,12 @@ class boardState:
         self.moves = mov
         self.usedPower = pows # needed?
     
-    #returns number of total moves done until now
+    # returns number of total moves done until now
     def getNumberOfTotalMoves(self):
         return len(self.moves)
     
-    # return whether this hero can move or not
+    # returns whether this hero can move or not
+    # Total moves less than MAX_TOTAL_MOVES
     # less than three heroes moved
     # last move + less than MAX_MOVES
     # has never moved
@@ -315,6 +485,8 @@ class boardState:
         if len(self.moves)==0:
             # if this is the first move of the state I can always move
             return True
+        if (len(self.moves) > max_total_moves):
+            return False
         if self.getHero(self.moves[-1]) == hero:
             # if the last move was done by hero, make sure that I haven'd done more than max_moves (10 in the actual game)
             c = 0 # counts the number of moves I have done
@@ -336,43 +508,46 @@ class boardState:
                 return False
         return True
     
-    #return whether that hero has used its power
+    # returns whether that hero has used its power
     def powerUsed(self, hero):
         return self.usedPower[hero]
     
-    #return power used list
+    # returns power used list
     def getPowerUsed(self):
         return self.usedPower
         
-    #sets power used
-    def setPowerUsed(self, hero,value):
+    # sets power used
+    def setPowerUsed(self, hero, value):
         self.usedPower[hero] = value
     
-    #return last move done in this state
+    # returns last move done in this state
     def getLastDirectionMoved(self):
         if len(self.moves)==0:
             return -1
         return (self.moves[-1] >> 25) & 3
         
-    #return last hero moved
+    # returns last hero moved
     def getLastHeroMoved(self):
         if len(self.moves)==0:
             return -1
         return (self.moves[-1] >> 27) & 31
     
-    #return all positions array
+    # returns all positions array
     def getPositions(self):
         return self.meeplePositions
     
-    #returns position of given hero
+    # returns position of given hero
     def getPosition(self, hero):
         return self.meeplePositions[hero]
     
-    #used to determine wether last move was the winning one
+    # used to determine wether last move was the winning one
     def getLastPosition(self):
         return self.meeplePositions[self.getLastHeroMoved()]
     
-    #return moves array
+    def lastMoveWasPower(self):
+        return self.moves[-1] & 31 < 31
+    
+    # return moves array
     def getMoves(self):
         return self.moves
     
@@ -380,7 +555,7 @@ class boardState:
     def getHero(self, m):
         return (m >> 27) & 31
 
-    # add new move to the state
+    # adds new move to the state
     # a move is 5 bits hero ID, 2 bits direction, 10 bits start, 10 bit end , 5 bits power ID
     def addMove(self, hero, direction, start, end, powerId):
         move = hero << 2
@@ -397,7 +572,7 @@ class boardState:
     def getHash(self):
         return 0
     
-    # print moves done for debug purposes
+    # prints moves done for debug purposes
     def debugPrint(self):
         for m in self.moves:
             self.printMove(m)
@@ -419,30 +594,3 @@ class boardState:
             print("hero ", heroes_names[hero], " uses power of ", heroes_names[powerId], " - [", starty, ",", startx, "] -> [", endy, ",", endx, "]")
         else:
             print("hero ", heroes_names[hero], " - direction ", directionNames[d], " - [", starty, ",", startx, "] -> [", endy, ",", endx, "]")
-    
-""" class move:
-        
-    # powerId is the which hero's power is used. -1 = no power.
-    def __init__(self, hero, direction, start, end, powerId):
-        self.hero = hero
-        self.direction = direction
-        self.powerId = powerId
-        # TODO remove start and end, only for debug
-        self.start = start 
-        self.end = end
-        
-    #return whether this is a normal move or a power
-    def isPower(self):
-        return self.powerId >= 0
-            
-    def getDirection(self):
-        return self.direction
-            
-    def getHero(self):
-        return self.hero
-            
-    def printMove(self):
-        if self.isPower():
-            print("hero ", heroes_names[self.hero], " uses power id ", self.powerId, " - direction ", self.direction, " ", self.start, " -> ", self.end)
-        else:
-            print("hero ", heroes_names[self.hero], " - direction ", directionNames[self.direction], " ", self.start, " -> ", self.end) """
