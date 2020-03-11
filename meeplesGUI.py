@@ -1,19 +1,21 @@
 from tkinter import *
-from tkinter import PhotoImage
+from tkinter import PhotoImage, filedialog
 from PIL import Image, ImageTk
 import os
 import math
 import time
 from meeples import *
+#For saving stuff in python's format
+import pickle
+#For executing the solver as a separate thread, so we can kill it
+import threading
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 icon = dir_path + '/graphics/icon.png'
 
 """
-TODO: Animazione della soluzione
-      Mettere lista di pupini attivi e farli diversi nella GUI
-      Vedere se heroes position si aggiorna con la GUI
-      Mettere salva e carica delle posizioni
+TODO: Mettere lista di pupini attivi e farli diversi nella GUI
+      Implementare i blocchi neri
 """
 
 #Returns a PhotoImage object with the image resized to the desired amount
@@ -71,6 +73,10 @@ class GUI:
         self.selected.set('None')
         #Calls a function everytime the value changes
         self.selected.trace('w', self.selected_changed)
+        #Is it solving or not
+        self.solving = False
+        #The moves of the last solution
+        self.last_moves = None
 
         #Window
         master.title('Mutant Meeples')
@@ -95,6 +101,14 @@ class GUI:
         #Creates an invisible widget to collect all events while it's animating
         self.fake = Frame(master, width = 0, height = 0)
 
+        self.menu = Menu(master, font = ('DejaVu Sans', 12))
+        self.filemenu = Menu(self.menu, tearoff = 0, font = ('DejaVu Sans', 12))
+        self.filemenu.add_command(label = "Save...   Ctrl+N", command = self.save_file)
+        self.filemenu.add_command(label = "Open...  Ctrl+O", command = self.open_file)
+        self.menu.add_cascade(label = "File", menu = self.filemenu)
+        #
+        master.config(menu = self.menu)
+
         #Binding keys
         self.canvas.bind('<Up>', self.pressed_up)
         self.canvas.bind('<Down>', self.pressed_down)
@@ -113,6 +127,8 @@ class GUI:
         self.canvas.bind('<Shift-Right>', self.select_next)
         self.canvas.bind('<space>', self.start_solve)
         self.canvas.bind('<r>', self.random_board)
+        master.bind("<Control-s>",lambda x: self.save_file())
+        master.bind("<Control-o>",lambda x: self.open_file())
         
         #Draws the pieces
         self.draw_canvas()
@@ -167,7 +183,7 @@ class GUI:
               '------',
               'Use Shift+(Up/Right) to go to the next Meeple,',
               'Shift+(Down/Left) to go to the previous one.',
-              'Otherwise just click on the Meeple to select it.',
+              'Otherwise just click on the Meeple to select or hold to drag it.',
               'Hold the right mouse button on a Meeple to show its available moves',
               'Drag and drop elements from the canvas to place/move them.',
               'Use the eraser to remove walls or starting points.',
@@ -368,6 +384,33 @@ class GUI:
         self.fake.grab_release()
         self.canvas.focus_set()
 
+    def animate_solution(self):
+        if self.last_moves is None:
+            print("There is not solution to be animated so far")
+        else:
+            for move in self.last_moves:
+                hero    = all_colors[(move >> 27) & 31]
+                starty  = (move >> 20) & 31
+                startx  = (move >> 15) & 31
+                endy    = (move >> 10) & 31
+                endx    = (move >>  5) & 31
+
+                for s in self.sprites:
+                    if s['obj'].color == hero:
+                        sprite = s
+                        break
+                factor = self.size / self.squares
+                origin = [factor*startx, self.size-factor*starty]
+                destination = [factor*endx, self.size-factor*endy]
+                true_destination = [endy, endx]
+
+                self.animate(sprite, origin, destination)
+                self.board.pieces[hero].place(*true_destination)
+                self.canvas.tag_raise(hero)
+                
+        self.last_moves = None
+
+                
     def change_cursor(self, event, override=False):
         '''Change the cursor to the grabbing hand'''
         def hand(event=None):
@@ -528,16 +571,76 @@ class GUI:
         if (selected.row, selected.col) == self.board.target:
             print(r'\bfCongratulations, you reached the target!')
     
-    
-    
     def start_solve(self, event=None):
-        self.master.config(cursor = 'watch')
-        self.board.solve()
+        '''Starts the solver'''
+        if self.solving:
+            self.board.sigkill = 1
+            self.master.config(cursor = 'arrow')
+            self.side.solve_button.config(text = 'Solve')
+            self.solving = False
+        else:
+            self.solving = True
+            self.board.sigkill = 0
+            self.master.config(cursor = 'watch')
+            self.side.solve_button.config(text = 'Abort')
+            self.side.solve_button.grab_set()
+            solve_thread = threading.Thread(target = self.now_solve)
+            solve_thread.start()        
+
+    def now_solve(self):
+        '''The process that gets called'''
+        moves = self.board.solve()
+        self.last_moves = moves
+        self.side.solve_button.grab_release()
         self.master.config(cursor = 'arrow')
+        self.side.solve_button.config(text = 'Solve')
+        self.solving = False
 
     def random_board(self, event=None):
         self.selected.set('None')
         self.board.randomBoard()
+
+    def save_file(self):
+        current_folder = os.path.dirname(os.path.realpath(__file__))
+        filename = filedialog.asksaveasfilename(initialdir = current_folder, title = "Select file",
+                                                filetypes = (("Meeples files", "*.bin"),("All files", "*.*")))
+        try:
+            with open(filename, "wb") as file:
+                dumping = (self.board.starts,
+                           self.board.atoms,
+                           self.board.blocked,
+                           self.board.size,
+                           self.board.stops,
+                           self.board.heroesPositions,
+                           self.board.walls,
+                           self.board.target)
+                pickle.dump(dumping, file)
+        except PermissionError:
+            print("Error occurred when saving file.")
+
+    def open_file(self):
+        current_folder = os.path.dirname(os.path.realpath(__file__))
+        filename = filedialog.askopenfilename(initialdir = current_folder, title = "Select file",
+                                                filetypes = (("Meeples files", "*.bin"),("All files", "*.*")))
+        try:
+            with open(filename, "rb") as file:
+                loaded = pickle.load(file)
+                self.board.starts  = loaded[0]
+                self.board.atoms   = loaded[1]
+                self.board.blocked = loaded[2]
+                self.board.size    = loaded[3]
+                self.board.stops   = loaded[4]
+                self.board.heroesPositions = loaded[5]
+                self.board.walls   = loaded[6]
+                self.board.target  = loaded[7]
+                self.board.pieces = {}
+                for n, c in enumerate(all_colors):
+                    self.board.pieces[c] = Sprite(self.board, c, *self.board.heroesPositions[n])
+                self.selected.set('None')
+                self.canvas.delete("all")
+                self.draw_canvas()
+        except (FileNotFoundError, TypeError) as e:
+            print("Error occurred when loading file.")
 
 class Sidebar:
     '''The sidebar that allows us to choose the pieces and the walls to put on the board'''
@@ -589,6 +692,7 @@ class Sidebar:
                                          command = self.toggle_drag_select, font = ('DejaVu Sans', 14), indicatoron = 0)
         self.random_button = Button(frame, text = 'Randomize', command = self.parent.random_board, font = ('DejaVu Sans', 14))
         self.solve_button = Button(frame, text = 'Solve', command = self.parent.start_solve, font = ('DejaVu Sans', 14))
+        self.animate_button = Button(frame, text = 'Animate', command = self.parent.animate_solution, font = ('DejaVu Sans', 14))
         eraser_pic = self.parent.picture('eraser', size)
         self.erasingQ = IntVar()
         self.erasingQ.set(0)
@@ -607,20 +711,22 @@ class Sidebar:
         frame.rowconfigure(9, weight = 1)
         frame.rowconfigure(10, weight = 1)
         frame.rowconfigure(11, weight = 1)
+        frame.rowconfigure(12, weight = 1)
 
         #Grid everything
         frame.grid(row = 0, column = 1, sticky = 'news')
         self.eraser.grid(row = 6, column = 0, columnspan = 3)
-        self.clear_walls.grid(row = 7, column = 0, columnspan = 3)
-        self.toggle_button.grid(row = 8, column = 0, columnspan = 3)
-        self.random_button.grid(row = 9, column = 0, columnspan = 3)
-        self.solve_button.grid(row = 10, column = 0, columnspan = 3)
+        self.clear_walls.grid(row = 7, column = 0, columnspan = 3, padx=20, pady=10, sticky = 'nswe')
+        self.toggle_button.grid(row = 8, column = 0, columnspan = 3, padx=20, pady=10, sticky = 'nswe')
+        self.random_button.grid(row = 9, column = 0, columnspan = 3, padx=20, pady=10, sticky = 'nswe')
+        self.solve_button.grid(row = 10, column = 0, columnspan = 3, padx=20, pady=10, sticky = 'nswe')
+        self.animate_button.grid(row = 11, column = 0, columnspan = 3, padx=20, pady=10, sticky = 'nswe')
 
         #Label
         self.stringlabel = StringVar()
         self.label = Label(frame, textvariable = self.stringlabel, font = ('DejaVu Sans', 12))
         frame.rowconfigure(8, weight = 1)
-        self.label.grid(row = 11, column = 0, columnspan = 3)
+        self.label.grid(row = 12, column = 0, columnspan = 3)
 
     def toggle_drag_select(self):
         '''Toggles between selecting or dragging pieces'''

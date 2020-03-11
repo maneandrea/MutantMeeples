@@ -31,6 +31,8 @@ class Board():
         self.size = size
         self.stops = []
         self.canvas = canvas
+        #This can be set to 1 to stop the execution
+        self.sigkill = 0
 
         squares = random.sample([[a,b] for a in range(size) for b in range(size)]
                                 , len(heroes)+1)
@@ -264,6 +266,9 @@ class Board():
             numberOfCycles += 1
             if (numberOfCycles % 25000 == 0):
                 print("Checking solutions with ",path.getNumberOfTotalMoves()," moves. States checked: ",numberOfCycles)
+                if self.sigkill:
+                    print("Ok, ok, I'll stop... jeez!")
+                    return []
                 
             successors = self.generateNextStates(path, stops, powerStops)
             
@@ -280,7 +285,7 @@ class Board():
                     elapsed = round(time.time() - start_time,2)
                     print("Solution found in ", str(datetime.timedelta(seconds=elapsed)))
                     print(round(numberOfCycles/elapsed,2)," cycles/second")
-                    return
+                    return successor.moves
                 else:
                     # TODO if I haven't seen this position already... (if !successor.getHash() in seenPositions...)
                     paths.append(successor)
