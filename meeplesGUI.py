@@ -9,6 +9,7 @@ from meeples import *
 import pickle
 #For executing the solver as a separate thread, so we can kill it
 import threading
+from multiprocessing import Process
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
 icon = dir_path + '/graphics/icon.png'
@@ -585,6 +586,9 @@ class GUI:
             self.side.solve_button.config(text = 'Abort')
             self.side.solve_button.grab_set()
             solve_thread = threading.Thread(target = self.now_solve)
+            # TODO using process might be faster than Thread, but anyways we need to think how to manage the parallelization situation first
+            # but process and tkinter don't like working together (at least on windows)
+            # solve_thread = Process(target = self.now_solve)
             solve_thread.start()        
 
     def now_solve(self):

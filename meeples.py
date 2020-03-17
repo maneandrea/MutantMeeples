@@ -3,7 +3,7 @@ import time
 import datetime
 from collections import deque
 
-# TODO add a way to disable meeples
+# TODO add a way to disable meeples and disable black power if hero is disabled
 # TODO boardState and move could be integers that are then decoded. Probably much more efficient than creating new objects every time
 # TODO boardState could be a dictionary of positions, moves and powers. Mothods would then become static. Probably faster
 # TODO boardState needs 8 x 2 x 5 bits for heroes positions, moves list, 3 bit for powers.
@@ -11,6 +11,8 @@ from collections import deque
 # TODO parallelize?
 # TODO check compatibility between this and the GUI script
 # TODO powerId in move could be replaced by True/False. Start and end of them move contain all the informatioms
+# TODO use ordered list. more efficient lookup for hashes
+# TODO @manenti way to undo animation
 
 heroes_names    = ['black','blue','brown','gray','green','red','white','yellow']
 heroes          = range(len(heroes_names))
@@ -48,6 +50,7 @@ class Board():
         #              (5,4,6,4),(5,3,5,4),(3,1,4,1),(1,8,1,9),(6,6,7,6),(9,4,9,5),
         #              (8,9,8,10),(1,4,2,4),(1,4,2,4),(7,6,7,7),(7,3,8,3),(4,8,5,8),
         #              (2,0,2,1),(3,2,3,3),(5,5,5,6)]
+        # TODO self.atoms   = {0:(3, 14), 1:(7, 10), 2:(10, 7), 3:(14, 3)}
 
         self.walls = [(0, 2, 1, 2), (2, 1, 3, 1), (3, 1, 3, 2), (4, 0, 4, 1), 
                       (4, 4, 4, 5), (4, 5, 5, 5), (6, 3, 6, 4), (7, 1, 7, 2), 
@@ -67,8 +70,10 @@ class Board():
                       (3, 10, 4, 10), (5, 9, 6, 9), (8, 9, 8, 10), (7, 11, 7, 12), 
                       (8, 16, 9, 16), (7, 15, 8, 15), (6, 17, 6, 18), (5, 16, 6, 16), 
                       (3, 16, 3, 17), (3, 17, 4, 17), (5, 13, 5, 14), (4, 14, 4, 15), 
-                      (3, 12, 3, 13), 
-                      (17, 1, 18, 1), (17, 0, 17, 1), (0, 17, 1, 17), (1, 17, 1, 18)] 
+                      (3, 12, 3, 13)]
+        self.atoms   = {0:(3, 14), 1:(7, 10), 2:(10, 7), 3:(14, 3)}
+
+        self.blocked = {0:(self.size-1, 0), 1:(0, self.size-1)}
 
     def randomBoard(self):
         squares = random.sample([[a,b] for a in range(self.size) for b in range(self.size)]
@@ -115,6 +120,7 @@ class Board():
             unique = max([a for a in self.blocked.keys()]) + 1
         self.blocked[unique] = pos
         print(f'Added blocked cell with id {unique}')
+        print(self.blocked)
 
     def add_atom(self, *pos):
         if len(self.atoms) == 0:
@@ -123,15 +129,30 @@ class Board():
             unique = max([a for a in self.atoms.keys()]) + 1
         self.atoms[unique] = pos
         print(f'Added atom with id {unique}')
-     
+    
+    def cantMove(self, x, y, v):
+        return self.isWall(x, y, v) or self.isEndOfMap(x, y, v)
+
     def isWall(self, x, y, v):
-        if v == [1,0] and (x+1 >= self.size or (x+1, y, x+1, y+1) in self.walls):
+        if   v == [1,0]  and (x+1, y, x+1, y+1) in self.walls:
             return True
-        elif v == [0,1] and (y+1 >= self.size or (x, y+1, x+1, y+1) in self.walls):
+        elif v == [0,1]  and (x, y+1, x+1, y+1) in self.walls:
             return True
-        elif v == [-1,0] and (x-1 < 0 or (x, y, x, y+1) in self.walls):
+        elif v == [-1,0] and (x, y, x, y+1)     in self.walls:
             return True
-        elif v == [0,-1] and (y-1 < 0 or (x, y, x+1, y) in self.walls):
+        elif v == [0,-1] and (x, y, x+1, y)     in self.walls:
+            return True
+        else:
+            return False
+
+    def isEndOfMap(self, x, y, v):
+        if   v == [1,0]  and (x+1 >= self.size or (x+1,y) in self.blocked.values()):
+            return True
+        elif v == [0,1]  and (y+1 >= self.size or (x,y+1) in self.blocked.values()):
+            return True
+        elif v == [-1,0] and (x-1 < 0          or (x-1,y) in self.blocked.values()):
+            return True
+        elif v == [0,-1] and (y-1 < 0          or (x,y-1) in self.blocked.values()):
             return True
         else:
             return False
@@ -159,7 +180,7 @@ class Board():
                     v = [i, j]
                     done = False
                     while not done:
-                        if self.isWall(v[0], v[1], d):
+                        if self.cantMove(v[0], v[1], d):
                             done = True
                             stops[i][j].append(v)
                         else:
@@ -173,31 +194,31 @@ class Board():
                     ps = powerFcns[heroname](i,j)
                     powerStops[heroid][i].append(ps)
 
-        # TODO precompute powers and add them to self.powerStops[id]...
         return stops, powerStops
 
     def redStops(self, i, j):
         res = []
-        if not self.isWall(i, j, [0,1]):
+        if not self.cantMove(i, j,  [0,1]):
             res.append([i, j+1])
-        if not self.isWall(i, j, [-1,0]):
+        if not self.cantMove(i, j, [-1,0]):
             res.append([i-1, j])
-        if not self.isWall(i, j, [0,-1]):
+        if not self.cantMove(i, j, [0,-1]):
             res.append([i, j-1])
-        if not self.isWall(i, j, [1,0]):
+        if not self.cantMove(i, j,  [1,0]):
             res.append([i+1, j])
         return res
 
-    # TODO check for continuous wall
+    # a white movement is forbidden if there is a corner or two walls in a row
+    # TODO check the 2-wall code
     def whiteStops(self, i, j):
         res = []
-        if i+1 < self.size and j+1 < self.size and not (self.isWall(i, j, [1,0]) and self.isWall(i, j, [0,1])):
+        if i+1 < self.size and j+1 < self.size and not ((self.cantMove(i, j, [1,0])  and self.cantMove(i, j, [0,1]))  or (self.cantMove(i, j, [1,0])   and self.cantMove(i, j+1, [1,0])) or (self.cantMove(i, j, [0,1])   and self.cantMove(i+1, j, [0,1]))):
             res.append([i+1, j+1])
-        if i+1 < self.size and j>0 and not (self.isWall(i, j, [1,0]) and self.isWall(i, j, [0,-1])):
+        if i+1 < self.size and j>0             and not ((self.cantMove(i, j, [1,0])  and self.cantMove(i, j, [0,-1])) or (self.cantMove(i, j, [1,0])   and self.cantMove(i, j-1, [1,0])) or (self.cantMove(i, j, [0,-1])  and self.cantMove(i+1, j, [0,-1]))):
             res.append([i+1, j-1])
-        if i>0 and j+1 < self.size and not (self.isWall(i, j, [-1,0]) and self.isWall(i, j, [0,1])):
+        if i>0             and j+1 < self.size and not ((self.cantMove(i, j, [-1,0]) and self.cantMove(i, j, [0,1]))  or (self.cantMove(i, j, [-1,0])  and self.cantMove(i, j+1, [1,0])) or (self.cantMove(i, j, [0,1])   and self.cantMove(i-1, j, [0,1]))):
             res.append([i-1, j+1])
-        if i>0 and j>0 and not (self.isWall(i, j, [-1,0]) and self.isWall(i, j, [0,-1])):
+        if i>0             and j>0             and not ((self.cantMove(i, j, [-1,0]) and self.cantMove(i, j, [0,-1])) or (self.cantMove(i, j, [-1,0])  and self.cantMove(i, j-1, [1,0])) or (self.cantMove(i, j, [0,-1])  and self.cantMove(i-1, j, [0,-1]))):
             res.append([i-1, j-1])
         return res
 
@@ -213,14 +234,78 @@ class Board():
             res.append([i+3, j])
         return res
 
+    # as a normal move, but the first wall sets a boolean to True and the move
+    # is valid only if it stops somewhere else and this boolean is True
     def grayStops(self, i, j):
-        return []
+        res = []
+        for d in directions:
+            v = [i, j]
+            done = False
+            wentThrough = False
+            while not done:
+                if self.cantMove(v[0], v[1], d):
+                    if not wentThrough and self.isWall(v[0], v[1], d):
+                        wentThrough = True
+                        v = [v[0]+d[0], v[1]+d[1]]
+                        continue
+                    done = True
+                    if wentThrough:
+                        res.append(v)
+                    else:
+                        # I append a non-move if in that direction the power is not usable
+                        # so that when I cycle over the stops the index and the direction coincide
+                        res.append([i,j])
+                else:
+                    v = [v[0]+d[0], v[1]+d[1]]
+        return res
 
     def blueStops(self, i, j):
-        return []
+        return list(self.atoms.values())
 
+    # TODO doesn't work if blocked cells are not on the border of the map...
+    # same as gray power. The edge of the map makes it wrap around.
+    # the move is considered only if I wrapped once.
+    # the edge of the map is defined in a non-general way
     def yellowStops(self, i, j):
-        return []
+        res = []
+        for d in directions:
+            v = [i, j]
+            done = False
+            wentThrough = False
+            while not done:
+                if self.cantMove(v[0], v[1], d):
+                    if not wentThrough and self.isEndOfMap(v[0], v[1], d):
+                        wentThrough = True
+                        if d == [1,0]:
+                            if [0, v[1]] in self.blocked.values():
+                                v = [1, v[1]]
+                            else:
+                                v = [0, v[1]]
+                        elif d == [0,1]:
+                            if [v[0], 0] in self.blocked.values():
+                                v = [v[0], 1]
+                            else:
+                                v = [v[0], 0]
+                        elif d == [-1,0]:
+                            if [self.size-1, v[1]] in self.blocked.values():
+                                v = [self.size-2, v[1]]
+                            else:
+                                v = [self.size-1, v[1]]
+                        elif d == [0,-1]:
+                            if [v[0], self.size-1] in self.blocked.values():
+                                v = [v[0], self.size-2]
+                            else:
+                                v = [v[0], self.size-1]
+                        continue
+                    done = True
+                    if wentThrough:
+                        res.append(v)
+                    else:
+                        # see comment on grey power
+                        res.append([i,j])
+                else:
+                    v = [v[0]+d[0], v[1]+d[1]]
+        return res
 
     def brownStops(self, i, j):
         res = []
@@ -228,7 +313,7 @@ class Board():
             v = [i, j]
             done = False
             while not done:
-                if self.isWall(v[0], v[1], d):
+                if self.cantMove(v[0], v[1], d):
                     done = True
                     if v != [i, j]:
                         v = [v[0]-d[0], v[1]-d[1]]
@@ -238,7 +323,7 @@ class Board():
         return res
 
     def blackStops(self, i, j):
-        # special case, handled later
+        # special case, probably handled later
         return []
 
 
@@ -253,10 +338,8 @@ class Board():
         stops, powerStops = self.precomputeStops()
         
         # paths contains the list of moves done so far saved in boardState objects
-        # paths = [boardState(self.heroesPositions.copy(), [] ,[False, False, False])]
         paths = deque([boardState(self.heroesPositions.copy(), [] ,[False,False,False,False,False,False,False,False])])
 
-        # TODO use ordered list. more efficient lookup
         # seenPositions = [paths[0].getHash()]
         
         print("--------------- LOOKING FOR SOLUTION ---------------")
@@ -291,13 +374,13 @@ class Board():
                     paths.append(successor)
                     # seenPositions.append(successor.getHash())
         print("Solution not found")
-        return None
+        return []
     
     # given a boardState, returns all the possible future states. 
     def generateNextStates(self, oldState, stops, powerStops):
         result = []
         for hero in heroes:
-            if oldState.canMove(hero):
+            if oldState.cantMove(hero):
                 hero_pos = oldState.getPosition(hero)
                 dirs = list(range(4))
                 lastDir = oldState.getLastDirectionMoved()
@@ -331,16 +414,16 @@ class Board():
                                                             
                 if not oldState.powerUsed(hero):
                     if hero == 0:
-                        # black...
-                        # loop on all others hero. If they can use the power append those stops
+                        # black... do nothing for now
                         continue
                     else:
                         pStops = powerStops[hero][hero_pos[0]][hero_pos[1]].copy()
                         for d, pstop in enumerate(pStops):
                             if pstop == hero_pos:
                                 continue
-                            # TODO check if red & green moves are redundant (in same dir as previous move)
-                            if heroes_names[hero] in ['red','white','green','blue']: # is this slow?
+                            if heroes_names[hero] in ['red','white','green','blue']: # TODO is this slow? is it creating a new list obj everytime?
+                                # for these heroes the move is impossible only if there is somebody
+                                # in the end cell
                                 for h in heroes:
                                     if h == hero or pstop == oldState.getPosition(h):
                                         continue                                    
@@ -350,7 +433,9 @@ class Board():
                                     result.append(boardState(positions, oldState.getMoves().copy(), oldState.getPowerUsed().copy()))
                                     result[-1].addMove(hero, 0, hero_pos, pstop, hero)
                                     result[-1].setPowerUsed(hero, True)
-                            elif heroes_names[hero] == 'brown':
+                            if heroes_names[hero] == 'brown':
+                                # same as in the normal move. Stop 1 cell before other guys
+                                # exception if there is a guy in the cell right adjacent where the move doesn't happen at all
                                 for h in heroes:
                                     if h == hero:
                                         continue
@@ -386,22 +471,86 @@ class Board():
                                     result.append(boardState(positions, oldState.getMoves().copy(), oldState.getPowerUsed().copy()))
                                     result[-1].addMove(hero, d, hero_pos, pstop, hero)
                                     result[-1].setPowerUsed(hero, True)
-                            elif heroes_names[hero] == 'yellow':
-                                # check heroes in that direction between stop and pstop but wrapped 
-                                continue
-                            elif heroes_names[hero] == 'gray':
-                                # chec heroes in that direction between stop and pstop
-                                continue
+                            if heroes_names[hero] == 'yellow':
+                                # similar to the normal move, but there are three cases:
+                                # case 1: the other guy is before the edge of the map (coincides with stop) -> move doesn't happen since it doesn't use the power
+                                # case 2: the other guy is right after the edge, move doesn't happen
+                                # case 3: the other guy is on the other side -> I stop one cell before him
+                                stop = stops[hero_pos[0]][hero_pos[1]][d].copy()
+                                for h in heroes:
+                                    if h == hero:
+                                        continue
+                                    hp = oldState.getPosition(h)
+                                    if   d == 0 and hp[0] == pstop[0]:
+                                        if hero_pos[1] < hp[1] <= stop[1] or hp[1] == 0:
+                                            pstop = hero_pos
+                                            break
+                                        elif 0 < hp[1] <= pstop[1]:
+                                            pstop[1] = hp[1] - 1
+                                    elif d == 1 and hp[1] == pstop[1]:
+                                        if hero_pos[0] > hp[0] >= stop[0] or hp[0] == self.size - 1:
+                                            pstop = hero_pos
+                                            break
+                                        elif self.size > hp[0] >= pstop[0]:
+                                            pstop[0] = hp[0] + 1
+                                    elif d == 2 and hp[0] == pstop[0]:
+                                        if hero_pos[1] > hp[1] >= stop[1] or hp[1] == self.size - 1:
+                                            pstop = hero_pos
+                                            break
+                                        elif self.size > hp[1] >= pstop[1]:
+                                            pstop[1] = hp[1] + 1
+                                    elif d == 3 and hp[1] == pstop[1]:
+                                        if hero_pos[0] < hp[0] <= stop[0] or hp[0] == 0:
+                                            pstop = hero_pos
+                                            break
+                                        elif 0 < hp[0] <= pstop[0]:
+                                            pstop[0] = hp[0] - 1
 
-                        # check that I can do that (different for every power)
-                        # 
-                        # blue   --- no other hero in final position
-                        # brown  --- same as normal move check, but stopping 1 square early
-                        # gray   --- no hero inbetween (the wall in the middle is automatically ignored) tizio prima del muro ignora, dopo il muro allora conta
-                        # green  --- no other hero in final position
-                        # red    --- no other hero in final position
-                        # white  --- no other hero in final position
-                        # yellow --- no hero inbetween (with coordinate looping, maybe check the two region before and after the warp)
+                                if pstop != hero_pos and pstop != stop:
+                                    positions = oldState.getPositions().copy()
+                                    positions[hero] = pstop
+                                    result.append(boardState(positions, oldState.getMoves().copy(), oldState.getPowerUsed().copy()))
+                                    result[-1].addMove(hero, d, hero_pos, pstop, hero)
+                                    result[-1].setPowerUsed(hero, True)
+                            if heroes_names[hero] == 'gray':
+                                # as for the yellow, I can only bump after the first wall (i. e. stop)
+                                # otherwise it would be a normal move
+                                stop = stops[hero_pos[0]][hero_pos[1]][d].copy()
+                                for h in heroes:
+                                    if h == hero:
+                                        continue
+                                    hp = oldState.getPosition(h)
+
+                                    if   d == 0 and hp[0] == pstop[0] and hero_pos[1] < hp[1] <= pstop[1]:
+                                        if hp[1] > stop[1]:
+                                            pstop[1] = hp[1] - 1          
+                                        else:
+                                            pstop = hero_pos
+                                            break
+                                    elif d == 1 and hp[1] == pstop[1] and pstop[0] <= hp[0] < hero_pos[0]:
+                                        if hp[0] < stop[0]:
+                                            pstop[0] = hp[0] + 1
+                                        else:
+                                            pstop = hero_pos
+                                            break
+                                    elif d == 2 and hp[0] == pstop[0] and pstop[1] <= hp[1] < hero_pos[1]:
+                                        if hp[1] < stop[1]:
+                                            pstop[1] = hp[1] + 1
+                                        else:
+                                            pstop = hero_pos
+                                            break
+                                    elif d == 3 and hp[1] == pstop[1] and hero_pos[0] < hp[0] <= pstop[0]:
+                                        if hp[0] > stop[0]:
+                                            pstop[0] = hp[0] - 1
+                                        else:
+                                            pstop = hero_pos
+                                            break
+                                if pstop != hero_pos and pstop != stop:
+                                    positions = oldState.getPositions().copy()
+                                    positions[hero] = pstop
+                                    result.append(boardState(positions, oldState.getMoves().copy(), oldState.getPowerUsed().copy()))
+                                    result[-1].addMove(hero, d, hero_pos, pstop, hero)
+                                    result[-1].setPowerUsed(hero, True)
 
         return result
 
@@ -486,7 +635,7 @@ class boardState:
     # less than three heroes moved
     # last move + less than MAX_MOVES
     # has never moved
-    def canMove(self, hero):
+    def cantMove(self, hero):
         if len(self.moves)==0:
             # if this is the first move of the state I can always move
             return True
